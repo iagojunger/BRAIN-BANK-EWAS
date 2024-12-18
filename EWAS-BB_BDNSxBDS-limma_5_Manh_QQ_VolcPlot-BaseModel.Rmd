@@ -1,0 +1,414 @@
+---
+title: "BDNS vs BDS "
+author: "Iago"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r, results='hide'}
+source("~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+# windows path
+#source("V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDNSvsBDS_BRAINBANK/source_functions/source_functions.R")
+
+need_packages <-c("tibble", "readxl", "dplyr", "EnhancedVolcano", "ggplot2", "ggmanh", "extrafont","gap")#' install by running the function
+install_cran_pkgs(pkgs = need_packages)
+install_bioconductor_pkgs(pkgs = need_packages)
+
+#' Check if all you need is installed
+check_installed(pkgs = need_packages)
+
+#load all packages, if needed
+load_pkgs <-c("tibble", "readxl", "dplyr", "EnhancedVolcano", "ggplot2", "ggmanh", "extrafont","gap")
+lapply(load_pkgs, require, character.only = TRUE )
+
+
+```
+
+### 4.1 Read in the data
+#### 0.1 Directory variables
+
+OBS: same paths on FEDORA
+```{r paged.print=TRUE, root.dir=TRUE}
+inputFolder <- "~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/2.Output_EWAS-models/4.DMPsSheets/1.Base-Model/"
+outputFolder <- "~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/2.Output_EWAS-models"
+knitr::opts_knit$set(root.dir = inputFolder)
+```
+
+OBS: Paths defined to the lab computer
+```{r}
+#OBS: Paths defined to the lab computer
+#inputFolder <-  "V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDNSvsBDS_BRAINBANK"
+#outputFolder <- "~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDNSvsBDS_BRAINBANK/2.Output_EWAS-models"
+```
+
+
+```{r}
+# knitr::opts_knit$set(root.dir = inputFolder)
+```
+
+
+## 0.2 Input variables 
+```{r}
+date <- "Aug.2024"
+# - BDNS vs. BDS DMPs - Accounting for smoking
+DMPs <- read.csv(file.path(inputFolder,"EWAS-BB-BDSvsBDNS_DMPs_Aug.2024.csv"), row.names = 1)
+
+# - BDNS vs. BDS DMPs svaPCs - Accounting for smoking
+DMPsSVA <- read.csv(file.path(inputFolder,"EWAS-BB-BDSvsBDNS_DMPs_svaPCs_Aug.2024.csv"), row.names = 1)
+
+```
+
+## 0.3 Output variables 
+### Manhatam
+```{r}
+BDNSvsBDS_ManhattanPlot <- paste0("EWAS-BB-BDNSvsBDS_ManhattanPlot_",date,".png")
+BDNSvsBDS_svaPCs_ManhattanPlot <- paste0("EWAS-BB-BDNSvsBDS_svaPCs_ManhattanPlot_",date,".png") 
+```
+
+### QQplot 
+```{r}
+BDNSvsBDS_QQplot <- paste0("EWAS-BB-BDNSvsBDS_QQplot_",date,".png")
+BDNSvsBDS_QQplot_svaPCs <- paste0("EWAS-BB-BDNSvsBDS_QQplot_svaPCs_",date,".png")
+```
+### Volcano Plot
+```{r}
+BDNSvsBDS_FDR_Corrected_VolcanoPlot <- paste0("EWAS-BB-BDNSvsBDS_FDR-Corrected_VolcanoPlot",date,".png")
+BDNSvsBDS_FDR_Corrected_svaPCs_VolcanoPlot <- paste0("EWAS-BB-BDNSvsBDS_FDR-Corrected_svaPCs_VolcanoPlot",date,".png")
+```
+
+
+# BD vs HC Manhatam plot
+### NO SVA 
+```{r}
+
+DMPs <- DMPs[which(DMPs$CHR %in% c(1:22)),]
+DMPs$CHR <- as.numeric(DMPs$CHR)
+DMPs_sorted <- DMPs[order(DMPs$CHR),]
+#DMPs_sorted$CHR <- factor(DMPs_sorted$CHR) 
+
+
+```
+#### Defining thresholds
+```{r}
+# Define two threshold lines
+EWSthresh <- -log10(9e-8)
+
+
+# - Defining the FDR threshold line
+p_values <- DMPs_sorted$P.Value
+
+###############################################################################
+# Function definition 
+FDRthres_function <- function(PVAL,FDRLEVEL){
+n <- length(PVAL)
+
+# Sort p-values
+sorted_PVAL <- sort(PVAL)
+
+# Calculate BH critical values
+bh_critical_values <- (1:n) / n * FDRLEVEL
+
+# Find the largest p-value that is less than or equal to its BH critical value
+threshold_index <- max(which(sorted_PVAL <= bh_critical_values))
+fdr_threshold <- sorted_PVAL[threshold_index]
+return(fdr_threshold)
+}
+###############################################################################
+fdrthres <- FDRthres_function(DMPs_sorted$P.Value,0.05)
+FDRthres <- -log10(fdrthres)
+```
+#### Generating Plot
+```{r}
+
+g <- DMPs_sorted %>% manhattan_plot(
+  .,
+  chromosome = NULL,
+  signif = c(EWSthresh, FDRthres),
+  pval.colname = "P.Value",
+  chr.colname = "CHR",
+  pos.colname = "MAPINFO",
+  rescale = TRUE,
+  annotatePval = 0.00000009)
+
+g + 
+  scale_color_manual(values = rep(c("gray1","gray"), length.out = 22)) +
+  geom_hline(yintercept = EWSthresh, color = "red", linetype = "dashed") +
+  geom_hline(yintercept = FDRthres, color = "blue4", linetype = "longdash") +
+  ggtitle("BDNS vs. BDS Manhattan Plot") +
+  theme(plot.title = element_text(size = 13, face = "bold", family = "Segoi U")) +
+  ylim(0,10)
+ 
+ggsave(filename = BDNSvsBDS_ManhattanPlot ,path = file.path(outputFolder,"2.ManhattanPlots"), device='png', dpi=300, width = 10, height = 7)
+
+```
+```{r}
+# List of SNPs to highlight are in the snpsOfInterest object
+# We will use ggrepel for the annotation
+library(ggrepel)
+DMPs_sorted <-DMPs_sorted[!is.na(DMPs_sorted),]
+snpsOfInterest <- rownames(DMPs_sorted[which(DMPs_sorted$P.Value < 9e-8),])
+# Prepare the dataset
+don <- DMPs_sorted %>% 
+  
+  # Compute chromosome size
+  group_by(CHR) %>% 
+  summarise(chr_len=max(MAPINFO)) %>% 
+  
+  # Calculate cumulative position of each chromosome
+  mutate(tot=cumsum(chr_len)-chr_len) %>%
+  select(-chr_len) %>%
+  
+  # Add this info to the initial dataset
+  left_join(DMPs_sorted, ., by=c("CHR"="CHR")) %>%
+  
+  # Add a cumulative position of each SNP
+  arrange(CHR, MAPINFO) %>%
+  mutate( Chromosome=MAPINFO+tot) %>%
+
+  # Add highlight and annotation information
+  mutate( is_highlight=ifelse(Name %in% snpsOfInterest, "yes", "no")) %>%
+  mutate( is_annotate=ifelse(-log10(P.Value)>EWSthresh, "yes", "no")) 
+
+# Prepare X axis
+axisdf <- don %>% group_by(CHR) %>% summarize(center=( max(Chromosome) + min(Chromosome) ) / 2 )
+
+# Make the plot
+ggplot(don, aes(x=Chromosome, y=-log10(P.Value))) +
+    
+    # Show all points
+    geom_point( aes(color=as.factor(CHR)), alpha=0.8, size=1.2) +
+    scale_color_manual(values = rep(c("grey", "skyblue"), 22 )) +
+    
+    # custom X axis:
+    scale_x_continuous( label = axisdf$CHR, breaks= axisdf$center ) +
+    scale_y_continuous(expand = c(0, 0) ) +     # remove space between plot area and x axis
+
+    # Add highlighted points
+    geom_point(data=subset(don, is_highlight=="yes"), color="orange", size=2) +
+  
+    # Add label using ggrepel to avoid overlapping
+    geom_label_repel( data=subset(don, is_annotate=="yes"), aes(label=Name), size=5) +
+
+    # Custom the theme:
+    theme_bw() +
+    theme( 
+      legend.position="none",
+      panel.border = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+    )
+```
+
+### With SVA 
+```{r}
+
+DMPsSVA <- DMPsSVA[which(DMPsSVA$CHR %in% c(1:22)),]
+DMPsSVA$CHR <- as.numeric(DMPsSVA$CHR)
+DMPsSVA_sorted <- DMPsSVA[order(DMPsSVA$CHR),]
+#DMPsSVA_sorted$CHR <- factor(DMPsSVA_sorted$CHR) 
+
+
+```
+#### Defining thresholds
+```{r}
+# Define two threshold lines
+EWSthresh <- -log10(9e-8)
+
+
+# - Defining the FDR threshold line
+p_values <- DMPsSVA_sorted$P.Value
+
+###############################################################################
+# Function definition 
+FDRthres_function <- function(PVAL,FDRLEVEL){
+n <- length(PVAL)
+
+# Sort p-values
+sorted_PVAL <- sort(PVAL)
+
+# Calculate BH critical values
+bh_critical_values <- (1:n) / n * FDRLEVEL
+
+# Find the largest p-value that is less than or equal to its BH critical value
+threshold_index <- max(which(sorted_PVAL <= bh_critical_values))
+fdr_threshold <- sorted_PVAL[threshold_index]
+return(fdr_threshold)
+}
+###############################################################################
+fdrthres <- FDRthres_function(DMPsSVA_sorted$P.Value,0.05)
+FDRthres <- -log10(fdrthres)
+```
+#### Generating Plot
+```{r}
+
+g <- DMPsSVA_sorted %>% manhattan_plot(
+  .,
+  chromosome = NULL,
+  signif = c(EWSthresh, FDRthres),
+  pval.colname = "P.Value",
+  chr.colname = "CHR",
+  pos.colname = "MAPINFO",
+  rescale = FALSE)
+
+g + 
+  scale_color_manual(values = rep(c("gray1","gray"), length.out = 22)) +
+  geom_hline(yintercept = EWSthresh, color = "red", linetype = "dashed") +
+  geom_hline(yintercept = FDRthres, color = "blue4", linetype = "longdash") +
+  ggtitle("BDNS vs. BDS Manhattan Plot - svaPCs  ") +
+  theme(plot.title = element_text(size = 13, face = "bold", family = "Segoi U")) + 
+  ylim(0,10)
+ggsave(filename = BDNSvsBDS_svaPCs_ManhattanPlot,path = file.path(outputFolder,"2.ManhattanPlots/"), device='png', dpi=600, width = 10, height = 7)
+```
+# BDNS vs. BDS QQplot
+### NO SVA
+```{r}
+
+lambda_gc <- gc.lambda(DMPs_sorted$P.Value)
+
+
+qq <- ggmanh::qqunif(x= DMPs_sorted$P.Value)
+
+qq + ggtitle("BDNS vs. BDS QQPlot - ") +
+  theme(plot.title = element_text(size = 17, face = "bold", family = "Segoi U")) + 
+  annotate("text", x = Inf, y = Inf, label = paste("lambda GC =", round(lambda_gc, 3)), 
+           hjust = 1.1, vjust = 1.1, size = 5, color = "red")
+ggsave(filename = BDNSvsBDS_QQplot,path = file.path(outputFolder,"1.QQplots/"), device='png', dpi=300, width = 7, height = 7)
+
+```
+
+### WITH SVA
+```{r}
+
+lambda_gc <- gc.lambda(DMPsSVA_sorted$P.Value)
+
+
+qq <- ggmanh::qqunif(x= DMPsSVA_sorted$P.Value)
+
+qq + ggtitle("BDNS vs. BDS QQPlot - svaPCs") +
+  theme(plot.title = element_text(size = 15, face = "bold", family = "Segoi U")) + 
+  annotate("text", x = Inf, y = Inf, label = paste("lambda GC =", round(lambda_gc, 3)), 
+           hjust = 1.1, vjust = 1.1, size = 5, color = "red")
+ggsave(filename = BDNSvsBDS_QQplot_svaPCs,path = file.path(outputFolder,"1.QQplots/"), device='png', dpi=300, width = 7, height = 7)
+```
+
+# BDNS vs. BDS Volcano plot
+### NO SVA
+Volcano plot with [EnhancedVolcano](https://bioconductor.org/packages/release/bioc/vignettes/EnhancedVolcano/inst/doc/EnhancedVolcano.html)
+```{r}
+################################################################################
+# FDRcorrected p-value 
+################################################################################
+pv = 9e-8 # set your p-value
+fc = 10^1000 # set your fold change
+
+fdrthres <- FDRthres_function(DMPs$P.Value,0.05)
+
+DMPs_volcano <- DMPs[,c(7,10)]
+
+colnames(DMPs_volcano) = c('log2FoldChange', 'pvalue')
+
+BDNSvsBDS_EnhVolc =EnhancedVolcano(DMPs_volcano,
+  lab = NA,
+  x = 'log2FoldChange',
+  y = 'pvalue',
+  pCutoff = pv,
+  FCcutoff = fc,
+  ylim = c(-0.5,10),
+  xlim = c(-1.8,1.8),
+  labSize = 2.0,
+  hline = c(fdrthres,9e-8),
+  hlineCol = c('red','blue'),
+  legendLabels=c('Not sig.','log2 FC','EWS p-value'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0)
+BDNSvsBDS_EnhVolc + ggtitle("BDNS vs. BDS Enhanced Volcano FDR-,Corrected p-value", 
+                         subtitle = "") +
+  theme(plot.title = element_text(size = 15, face = "bold", family = "Segoi U"))
+#ggsave(paste0("VolcanoPlot_BD_v_HC_FDR-corrected",date,".png"),path = "V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDNSvsBDS_BRAINBANK/2.Output_EWAS-models/3.VolcanoPlots", device='png', dpi=300, width = 10, height = 7)
+ggsave(filename = BDNSvsBDS_FDR_Corrected_VolcanoPlot,path = file.path(outputFolder,"3.VolcanoPlots"), device='png', dpi=300, width = 10, height = 7)
+
+```
+```{r}
+pv = EWSthresh
+# set your p-value
+fc = 0.5 # set your fold change
+
+fdrthres <- FDRthres_function(DMPs$P.Value,0.05)
+# Finally, we can organize the labels nicely using the "ggrepel" package and the geom_text_repel() function
+# load library
+# plot adding up all layers we have seen so far
+BDNSvsBDS_ggplot = ggplot(data=DMPs_sorted, aes(x=logFC, y=-log10(P.Value))) +
+        geom_point(aes(color=ifelse(-log10(P.Value) > -log10(9e-8), "above", "below")), show.legend = FALSE) + 
+        geom_point(data=subset(DMPs_sorted, -log10(P.Value) > -log10(9e-8)), aes(x=logFC, y=-log10(P.Value)), color="orange", shape=18, size=3) +
+        geom_text(data=subset(DMPs_sorted, -log10(P.Value) > -log10(9e-8)), aes(x=logFC, y=-log10(P.Value), label=Name), vjust=-1, size=3) +
+        theme_linedraw() +
+        scale_color_manual(values=c("above"="blue", "below"="azure4")) +
+        geom_hline(aes(yintercept=-log10(9e-8), linetype="EWS p value"), col="deepskyblue2") +
+        geom_hline(aes(yintercept=-log10(fdrthres), linetype="FDR corrected"), col="brown1") +
+        scale_linetype_manual(name="Thresholds", values=c("EWS p value"="dashed", "FDR corrected"="dashed")) +
+        guides(linetype=guide_legend(override.aes=list(color=c("deepskyblue2", "brown1")), title.position="top")) +
+        ylim(-0.5,10)
+
+BDNSvsBDS_ggplot + ggtitle("BDS vs. BDNS - Volcano Plot", 
+                         subtitle = "") +
+  theme(plot.title = element_text(size = 15, face = "bold", family = "Segoi U"))
+ggsave(filename = BDNSvsBDS_FDR_Corrected_VolcanoPlot,path = file.path(outputFolder,"3.VolcanoPlots"), device='png', dpi=300, width = 10, height = 7)
+
+```
+
+### WITH SVA
+```{r}
+# ################################################################################
+# # FDRcorrected p-value 
+# ################################################################################
+pv = EWSthresh # set your p-value
+fc = 10^1000 # set your fold change
+DMPsSVA_volcano <- DMPsSVA[,c(7,10)]
+
+colnames(DMPsSVA_volcano) = c('log2FoldChange', 'pvalue')
+BDNSvsBDS_EnhVolc =EnhancedVolcano(DMPsSVA_volcano,
+  lab = NA,
+  x = 'log2FoldChange',
+  y = 'pvalue',
+  pCutoff = pv,
+  FCcutoff = fc,
+  ylim = c(-0.5,10),
+  xlim = c(-1.8,1.8),
+  labSize = 2.0)
+BDNSvsBDS_EnhVolc + ggtitle("BDNS vs. BDS Enhanced Volcano FDR-Corrected p-value", 
+                         subtitle = "svaPCs ") +
+  theme(plot.title = element_text(size = 15, face = "bold", family = "Segoi U"))
+#ggsave(paste0("VolcanoPlot_BD_v_HC_FDR-corrected",date,".png"),path = "V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDNSvsBDS_BRAINBANK/2.Output_EWAS-models/3.VolcanoPlots", device='png', dpi=300, width = 10, height = 7)
+ggsave(filename = BDNSvsBDS_FDR_Corrected_svaPCs_VolcanoPlot,path = file.path(outputFolder,"3.VolcanoPlots"), device='png', dpi=300, width = 10, height = 7)
+
+```
+```{r}
+fdrthres <- FDRthres_function(DMPsSVA$P.Value,0.05)
+# Finally, we can organize the labels nicely using the "ggrepel" package and the geom_text_repel() function
+# load library
+# plot adding up all layers we have seen so far
+BDNSvsBDS_ggplot = ggplot(data=DMPsSVA_sorted, aes(x=logFC, y=-log10(P.Value))) +
+        geom_point(aes(color=ifelse(-log10(P.Value) > -log10(9e-8), "above", "below")), show.legend = FALSE) + 
+        geom_point(data=subset(DMPsSVA_sorted, -log10(P.Value) > -log10(9e-8)), aes(x=logFC, y=-log10(P.Value)), color="orange", shape=18, size=3) +
+        geom_text(data=subset(DMPsSVA_sorted, -log10(P.Value) > -log10(9e-8)), aes(x=logFC, y=-log10(P.Value), label=Name), vjust=-1, size=3) +
+        theme_linedraw() +
+        scale_color_manual(values=c("below"="azure4")) +
+        geom_hline(aes(yintercept=-log10(9e-8), linetype="EWS p value"), col="deepskyblue2") +
+        geom_hline(aes(yintercept=-log10(fdrthres), linetype="FDR corrected"), col="brown1") +
+        scale_linetype_manual(name="Thresholds", values=c("EWS p value"="dashed", "FDR corrected"="dashed")) +
+        guides(linetype=guide_legend(override.aes=list(color=c("deepskyblue2", "brown1")), title.position="top")) +
+        ylim(-0.5,10)
+
+BDNSvsBDS_ggplot + ggtitle("BDS vs. BDNS - Volcano Plot", 
+                         subtitle = "svaPCs - sensitivity analysis") +
+  theme(plot.title = element_text(size = 15, face = "bold", family = "Segoi U"))
+ggsave(filename = BDNSvsBDS_FDR_Corrected_svaPCs_VolcanoPlot,path = file.path(outputFolder,"3.VolcanoPlots"), device='png', dpi=300, width = 10, height = 7)
+```
+
+```{r}
+print("END OF SCRIPT")
+```
+
