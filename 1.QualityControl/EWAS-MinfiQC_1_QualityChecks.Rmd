@@ -1,0 +1,212 @@
+---
+title: "EWAS-MinfiQC 1 - Data cleaning, RGset generation and minfi intensity QC metrics" 
+author: "Iago"
+date: "2024-09-17"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+This script is dedicated to realize minfi 1st step of quality control.
+
+Stage Description:  
+  1.) At first, this script will check the existence of all .idat files for all individuals. 
+      Then, create RGset, Mset and GMset raw objects (Raw = Non-Normalized).  
+  
+  2.) Using GMRset, ccheck for sex discrepancy between sample.  
+    a) Removing sex discrepant samples  
+  
+  3.) Minfi uMed/mMed quality control (Intensity QC metrics)  
+  
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+source("~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+# windows path
+#source("V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+need_packages <-c("tibble", "readxl","minfi", "readxl", "stringr", "dplyr", "IlluminaHumanMethylationEPICmanifest", "wateRmelon", "ewastools")#' install by running the function
+install_cran_pkgs(pkgs = need_packages)
+install_bioconductor_pkgs(pkgs = need_packages)
+
+#' Check if all you need is installed
+check_installed(pkgs = need_packages)
+
+#load all packages, if needed
+load_pkgs <- c("minfi", "readxl", "stringr", "dplyr")
+lapply(load_pkgs, require, character.only = TRUE )
+
+
+```
+
+#### 0.1 Directory variables ----
+```{r}
+IdatFolder <-  "/home/frieslab/walssbasslab_server/Walss-Bass lab juliet/Gabriel/K01 analyses/iScan runs K01/idat_K01"
+outputFolder <- "/home/frieslab/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK"
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### 0.2 Inut variables ----
+```{r}
+date <- "Aug.2024"
+input_file <-  file.path(outputFolder,"4.Original_MetaData/K01_annotation_7.25.23_FullMetaData.xlsx")
+```
+
+#### 0.3 Output variables ----
+```{r}
+QC_metrics_file <- file.path(outputFolder,"7.Intermediate_files/QC_metrics_BRAIN-BANK.csv")
+scatter_out_file <- file.path(outputFolder,"8.Plots/BRAIN-BANK_scatter_plot.png" )
+```
+
+
+# 1) Data imputation ----
+
+#### 1.1) Input phenotype table
+```{r Inputing Basenames paths to idat files} 
+targets <- as.data.frame(read_excel(input_file))
+
+if ("Basename" %in% colnames(targets)) {
+  cat("The 'Basename' column exists in the dataframe.\n")
+} else {
+	targets$Basename <- paste0(IdatFolder,"/",targets$Sentrix_ID,"_",targets$Sentrix_Position)
+
+  cat("The 'Basename' column does not exist in the dataframe.\n")
+}
+```
+
+```{r Creating "Barcode" column based on the idat files present in the folder}
+fileName_list <- list.files(path = IdatFolder, pattern = "idat")
+barcode <- str_split(fileName_list, "_")
+
+```
+
+```{r Checking for duplicated barcode names in the folder}
+inFolder_barcode <- list()
+for(i in seq(length(barcode)) ){
+  inFolder_barcode <- c(inFolder_barcode, paste0(barcode[[i]][1],"_",barcode[[i]][2]) )
+}
+
+head(inFolder_barcode)
+
+inFolder_barcode_nodup <- inFolder_barcode[which(duplicated(inFolder_barcode))]
+```
+```{r Subsetting targets to only the ones we actually have data }
+targetsInFolder <- subset(targets, targets$barcode %in% inFolder_barcode_nodup)
+
+targets <- targetsInFolder
+
+```
+
+
+
+#### 1.3) RGset and Mset geneation  
+--- Red & Green channel set and Methylation set --- 
+```{r Creating RGset based on individuals showed in targets (metadata) }
+cat("1.3.1 - Reading metharray to RGset")
+if (file.exists(file.path(outputFolder,"7.Intermediate_files/RGset_BRAIN-BANK.RData"))){
+  
+  
+  load(file.path(outputFolder,"7.Intermediate_files/RGset_BRAIN-BANK.RData"))
+
+  } else{
+
+    RGset <- read.metharray.exp(targets = targets, extended =TRUE, recursive = TRUE, verbose=TRUE, force=TRUE)
+
+    save(RGset, file = file.path(outputFolder,"7.Intermediate_files/RGset_BRAIN-BANK.RData"))
+}
+```
+
+#### 1.3.1 Creating MSet and GMset
+  Obs: If you want to make the script faster, remove the saving step from MSet 
+  and GMSset, its not necessary to have them being saved
+```{r Creating MSet based on RGset}
+
+cat("1.3.2 - Generating MSet, GMSet and Sex Check \n")
+if(file.exists(file.path(outputFolder,"/7.Intermediate_files/MSet_BRAIN-BANK.RData"))){
+  load(file.path(outputFolder,"/7.Intermediate_files/MSet_BRAIN-BANK.RData"))
+} else {
+
+  MSet <- preprocessRaw(RGset)
+
+  print(MSet)
+
+  save(MSet, file = file.path(outputFolder,"/7.Intermediate_files/MSet_BRAIN-BANK.RData"))
+}
+
+
+```
+### GMSset
+```{r Creating GMSet baed on RGset}
+
+if(file.exists(file.path(outputFolder,"/7.Intermediate_files/GMset_BRAIN-BANK.RData"))){
+  load(file.path(outputFolder,"/7.Intermediate_files/GMset_BRAIN-BANK.RData"))
+} else {
+GMset <- mapToGenome(MSet)
+print(GMset)
+save(GMset, file = file.path(outputFolder,"/7.Intermediate_files/GMset_BRAIN-BANK.RData"))
+}
+
+```
+
+### GetSex() ----
+
+```{r Checking sex discrepancy}
+
+
+predSex <- getSex(GMset) %>% as.data.frame() ; predSex$barcode <- row.names(predSex)
+head(predSex)
+
+
+targets <- inner_join(x=targets, y = predSex, by="barcode")
+
+#View(targets)
+
+
+targets$Sex <- ifelse(targets$Sex %in% c("Male", "M"), "M", "F")
+
+if(!all(targets$Sex == targets$predictedSex)){
+    print("There are sex discordance in te sample")
+    mismatch <- targets[which(targets$Sex != targets$predictedSex),]
+    print(mismatch[,c("barcode","Sex","predictedSex")])
+    write.csv(mismatch, file = file.path(outputFolder,paste0("6.Phenotype_files/K01_FailedSexMismatched_file",date,".csv")), row.names = FALSE, quote = TRUE)
+} else{
+    print("There ara no sex discordande in the sample")
+}
+
+
+targets$SexMismatch <- ifelse(targets$Sex == targets$predictedSex, FALSE, TRUE )
+
+
+```
+
+
+#### Minfi intensity quality control ----
+```{r}
+cat("1.3.3 - MSet quality control")
+
+qc <- getQC(MSet)
+head(qc)
+QCmetrics <- cbind(targets,qc)
+
+
+
+```
+
+
+### 1.4) Writting mMed/uMed Quality Checks metrics and Generating meth/unmeth scatter plot  
+--- Quality check graph ---  
+
+**Question: what do you think about those below threshold? Should we remove?**
+
+```{r}
+
+QCmetrics$minfiFailed <- ifelse((QCmetrics$mMed + QCmetrics$uMed)/2 < 10.5, TRUE, FALSE)
+print(table(QCmetrics$minfiFailed, QCmetrics$SexMismatch))
+
+write.csv(QCmetrics, file=QC_metrics_file,row.names=FALSE)
+plotQC(qc)
+```
+
+```{r}
+rm(list = ls())
+```

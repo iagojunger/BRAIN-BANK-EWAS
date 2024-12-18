@@ -1,0 +1,147 @@
+---
+title: " EWAS minfi QC 2 - Bisulphite convertion and DetectionP"
+output: html_notebook
+---
+Stage Description:  
+
+  2.1) Remove probes which bisulphite convertion is below 80%  
+  
+  2.2) Read in the list of probes that are cross-hybridizing and are located  
+  in SNPS  
+  
+  2.3) DetP value threshold = 0.001  
+    a) Remove samples which detP mean is > 0.001  
+    b) Remove probes which detP mean is > 0.001  
+  
+  2.4) Remove probes located in SNPs  
+  
+  2.5) Create a new RGset with bad samples and probes removed
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+source("~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+# windows path
+#source("V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+need_packages <-c("tibble", "readxl","minfi", "readxl", "stringr", "dplyr", "IlluminaHumanMethylationEPICmanifest", "wateRmelon", "ewastools")#' install by running the function
+install_cran_pkgs(pkgs = need_packages)
+install_bioconductor_pkgs(pkgs = need_packages)
+
+#' Check if all you need is installed
+check_installed(pkgs = need_packages)
+
+#load all packages, if needed
+load_pkgs <- c("minfi", "readxl", "stringr", "dplyr","IlluminaHumanMethylationEPICmanifest","ewastools")
+lapply(load_pkgs, require, character.only = TRUE )
+```
+
+
+#### 0.1 Directory variables
+```{r}
+inputFolder <-"/home/frieslab/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK"
+outputFolder <- inputFolder
+setwd(outputFolder)
+```
+
+
+#### 0.2 Inut variables 
+```{r}
+date <- "Aug.2024"
+input_file <- file.path(inputFolder, "7.Intermediate_files/QC_metrics_BRAIN-BANK.csv")
+remove <- file.path(outputFolder,"cross_reactiveEPIC_Iago.csv")
+targets <- read.csv(file.path(outputFolder,"7.Intermediate_files/QC_metrics_BRAIN-BANK.csv"))
+```
+
+## 2.0 Loading RGset again  
+--- Illumina Backgrouond correction ---  
+
+```{r}
+if(file.exists(file.path(inputFolder,paste0("7.Intermediate_files/RGset_bgcorr_BRAIN-BANK_",date,".RData")))) {
+  load(file.path(inputFolder, paste0("7.Intermediate_files/RGset_bgcorr_BRAIN-BANK_",date,".RData"))) 
+} else{
+  RGset <- bgcorrect.illumina(RGset)  
+  save(RGset, file= file.path(inputFolder,paste0("7.Intermediate_files/RGset_bgcorr_BRAIN-BANK_",date,".RData"))) 
+}
+```
+
+
+## 2.1 Bisulphite convertion filtering  
+--- Bisulphite convertion threshold > 80% ---  
+  2.2.1 Creating a list of individuals that are 80% higher Bisulphite converstion 
+
+```{r}
+# # Make a list of targets that failed in minfiQC and SexCheck
+# targets <- read.csv(input_file, stringsAsFactors = TRUE, header = TRUE)
+# filtered_targets<- targets[!(targets$SexMismatch | targets$minfiFailed), ]
+```
+
+```{r}
+
+Bisulphite <-bscon(RGset)
+
+print("#make a list of individuals whose bisulphite conversion is >80%")
+good.samples <- Bisulphite>80
+good.samples <- good.samples[good.samples==TRUE] 
+good.samples <- names(good.samples)  
+
+```
+
+
+## 2.2) Cross-hybridizing probes and SNP-prove removing  
+```{r}
+print("Reading cross-hybridizing file")
+probes=read.table(remove,h=F)
+
+print("Preliminary filtering by detection p-value")
+
+if(file.exists(file.path(inputFolder,"7.Intermediate_files/detP_BRAIN-BANK.RData"))){
+  load(file.path(inputFolder,"7.Intermediate_files/detP_BRAIN-BANK.RData"))
+} else{
+  detP <- minfi::detectionP(RGset)
+save(detP, file = file.path(inputFolder,"7.Intermediate_files/detP_BRAIN-BANK.RData"))
+}
+
+```
+
+## 2.3 Detection P value filtering step
+```{r}
+keep <- colMeans(detP) < 0.001 
+failedProbes <- rownames(detP)[rowMeans(detP)>0.001] 
+```
+```{r}
+barplot(colMeans(detP), las=2, cex.names=0.8, ylab="Mean detection p-values")
+abline(h=0.001,col="red")
+```
+
+
+### 2.3.1 Removing the cross-hybridizin probes, bad detP samples and probes located in SNPs
+```{r}
+print("Creating a new RGset with bad samples and probes removed")
+RGset <- subsetByLoci(rgSet=RGset[,keep],excludeLoci = c(probes,failedProbes), keepSnps = FALSE)
+RGset <- RGset[ ,intersect(good.samples, colnames(RGset))]
+
+save(RGset, file = file.path(outputFolder, paste0("7.Intermediate_files/RGset_goodsamples_no-SNPs_BRAIN-BANK_",date,".RData")))
+```
+
+```{r}
+
+print("Removing bad samples from targets datasheet")
+targets2 <- targets[which(targets$barcode %in% colnames(RGset) ),]
+
+head(targets2)
+targets <- targets2
+dim(targets)
+write.csv(targets, file = file.path(outputFolder, paste0("6.Phenotype_files/K01_annotation_QCmetrics_removal",date,".csv")))
+```
+
+```{r}
+
+detP_good <- detP[!(rownames(detP) %in% failedProbes), which(colnames(detP) %in% names( keep[which(keep ==TRUE)] ) ) ]
+ncol(detP_good)
+```
+```{r}
+barplot(colMeans(detP_good), las=2, cex.names=0.8, ylab="Mean detection p-values")
+abline(h=0.01,col="red")
+```
+
+```{r}
+rm(list=ls())

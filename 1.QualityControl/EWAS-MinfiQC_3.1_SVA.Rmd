@@ -1,0 +1,67 @@
+---
+title: "script 3.1 SVA inclusion pre-normalization"
+output: html_notebook
+---
+
+# SVA batch effect correction 
+```{r}
+source("~/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+# windows path
+#source("V:/common/Walss-Bass_Lab/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK/source_functions/source_functions.R")
+
+need_packages <-c("tibble", "readxl","minfi", "readxl", "stringr", "dplyr", "IlluminaHumanMethylationEPICmanifest", "wateRmelon", "ewastools","ENmix")#' install by running the function
+install_cran_pkgs(pkgs = need_packages)
+install_bioconductor_pkgs(pkgs = need_packages)
+
+#' Check if all you need is installed
+check_installed(pkgs = need_packages)
+
+#load all packages, if needed
+load_pkgs <-c("tibble", "readxl","minfi", "readxl", "stringr", "dplyr","ENmix")
+lapply(load_pkgs, require, character.only = TRUE )
+```
+
+
+#### 0.1 Directory variables
+```{r}
+inputFolder <-  "/home/frieslab/walssbasslab_server/Walss-Bass lab juliet/Iago/1.EWAS_K01_Analysis/Aug.24-EWAS_BDvsHC_BRAINBANK"
+outputFolder <- inputFolder
+knitr::opts_knit$set(root.dir = inputFolder)
+
+```
+
+#### 0.2 Input variables 
+```{r}
+date <- "Aug.2024"
+# - Targets
+targets <- read.csv(file.path(inputFolder, "6.Phenotype_files/K01_annotation_QCmetrics_removalAug.2024.csv"), row.names = 1)
+
+# - RGset
+load(file.path(inputFolder,"7.Intermediate_files/RGset_goodsamples_no-SNPs_BeadFilter_CpG10perctFilter_BRAIN-BANK_Aug.2024.RData"))
+
+```
+
+#### Atribute barcode as the rownames
+```{r}
+
+rownames(targets) <- targets$barcode
+targets <- targets[which(targets$barcode %in% colnames(RGset)),]
+
+svaTargets <- ENmix::ctrlsva(rgSet = RGset) %>% as.data.frame()
+
+# Changing colnames to specify they ar
+colnames(svaTargets) <- paste0("sva", colnames(svaTargets))
+svaTargets$barcode  <- rownames(svaTargets)
+
+targets <- inner_join(x=targets, y = svaTargets, by = "barcode")
+
+write.csv(targets, file = file.path(inputFolder,"6.Phenotype_files/K01_annotation_QCmetrics_removalAug.2024.csv"))
+```
+
+
+
+
+
+
+
