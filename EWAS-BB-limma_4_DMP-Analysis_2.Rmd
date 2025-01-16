@@ -84,49 +84,6 @@ meta$Brain_Bank <- BB
 
 # Converting Labels into information ----
 
-### Group (split by suicide)
-
-| Group           | Total (n) | RNA-seq data (n) | Code |
-|-----------------|-----------|------------------|------|
-| BD-NS           | 115       | 56               | 1    |
-| BD-S            | 100       | 53               | 2    |
-| Controls        | 135       | 63               | 3    |
-| BD undetermined | 26        | \-               | 4    |
-
-### Combined Group (BD-NS + BD-S)
-
-| Group | Total (n) | RNA-seq data (n) |
-|-------|-----------|------------------|
-| BD    | 215       | 109              |
-
-### Sex
-
-| Sex    | Code |
-|--------|------|
-| Female | 1    |
-| Male   | 2    |
-
-### Brain Bank
-
-| Brain Bank     | Code |
-|----------------|------|
-| NIMH HBCC      | 1    |
-| Sepulveda      | 2    |
-| Harvard        | 3    |
-| Miami          | 4    |
-| Mt. Sinai      | 5    |
-| Maryland       | 6    |
-| Douglas-McGill | 7    |
-
-### Race
-
-| Race                             | Code |
-|----------------------------------|------|
-| White/Caucasian                  | 1    |
-| Black or African American        | 2    |
-| Asian                            | 3    |
-| American Indian or Alaska Native | 4    |
-
 #### Creating different groups 
 - Case/control comparison
 - BD vs BDNS comparison 
